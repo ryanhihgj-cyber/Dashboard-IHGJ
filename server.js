@@ -10,12 +10,23 @@ app.use(bodyParser.json());
 app.post('/slack/actions', async (req, res) => {
   try {
     const payload = JSON.parse(req.body.payload);
-    const actionId = payload.actions[0].action_id;
-    const user = payload.user.username;
+    const actionId = payload.actions?.[0]?.action_id;
+    const user = payload.user?.username || 'unknown';
 
-    const row = parseInt(actionId.split('_').pop());
+    if (!actionId || !actionId.includes('_')) {
+      console.error('Invalid or missing action_id:', actionId);
+      return res.status(400).json({ text: '⚠️ Invalid action ID', replace_original: true });
+    }
+
+    const rowStr = actionId.split('_').pop();
+    const row = parseInt(rowStr, 10);
+
+    if (isNaN(row) || row <= 0) {
+      console.error('Invalid row number parsed from action_id:', rowStr);
+      return res.status(400).json({ text: '⚠️ Invalid row number', replace_original: true });
+    }
+
     const rowIndex = row - 1;
-
     console.log(`Received actionId: ${actionId}, parsed row index: ${rowIndex}`);
 
     const doc = new GoogleSpreadsheet(process.env.SHEET_ID);
@@ -28,29 +39,29 @@ app.post('/slack/actions', async (req, res) => {
     const sheet = doc.sheetsByTitle['Jobs List'];
     const rows = await sheet.getRows();
 
-    if (rowIndex >= 0 && rowIndex < rows.length) {
-      const targetRow = rows[rowIndex];
+    if (rowIndex < 0 || rowIndex >= rows.length) {
+      console.error(`Row index ${rowIndex} is out of bounds. Total rows: ${rows.length}`);
+      return res.status(400).json({ text: `⚠️ Row index ${rowIndex} is out of bounds`, replace_original: true });
+    }
 
-      if (actionId.startsWith('mark_complete_')) {
-        targetRow['Marked Complete'] = 'TRUE';
-        targetRow['Percent Complete'] = 100;
-        await targetRow.save();
-        res.json({ text: `✅ Job marked complete by @${user}`, replace_original: true });
-      } else if (actionId.startsWith('resolve_job_')) {
-        targetRow['Marked Complete'] = 'TRUE';
-        targetRow['Percent Complete'] = 100;
-        await targetRow.save();
-        res.json({ text: `❗ Job resolved by @${user}`, replace_original: true });
-      } else {
-        res.json({ text: `Action ${actionId} clicked by @${user}`, replace_original: true });
-      }
+    const targetRow = rows[rowIndex];
+
+    if (actionId.startsWith('mark_complete_')) {
+      targetRow['Marked Complete'] = 'TRUE';
+      targetRow['Percent Complete'] = 100;
+      await targetRow.save();
+      return res.json({ text: `✅ Job marked complete by @${user}`, replace_original: true });
+    } else if (actionId.startsWith('resolve_job_')) {
+      targetRow['Marked Complete'] = 'TRUE';
+      targetRow['Percent Complete'] = 100;
+      await targetRow.save();
+      return res.json({ text: `❗ Job resolved by @${user}`, replace_original: true });
     } else {
-      console.error(`Invalid row index: ${rowIndex}`);
-      res.status(400).json({ text: `⚠️ Error: Invalid row index (${rowIndex})`, replace_original: true });
+      return res.json({ text: `Action ${actionId} clicked by @${user}`, replace_original: true });
     }
   } catch (error) {
     console.error('Error handling Slack action:', error);
-    res.status(500).json({ text: '⚠️ Internal server error', replace_original: true });
+    return res.status(500).json({ text: '⚠️ Internal server error', replace_original: true });
   }
 });
 
