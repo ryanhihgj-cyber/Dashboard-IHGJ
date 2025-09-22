@@ -32,11 +32,14 @@ app.post('/slack/actions', async (req, res) => {
     const sheet = doc.sheetsByTitle['Jobs List'];
     const rows = await sheet.getRows();
 
-    // Find the row that matches job, title, and date
+    // Match row by Job, Title, and either Start or End date
     const targetRow = rows.find(row =>
       row['Job']?.trim() === job.trim() &&
       row['Title']?.trim() === title.trim() &&
-      row['Start']?.trim() === date.trim()
+      (
+        row['Start']?.trim() === date.trim() ||
+        row['End']?.trim() === date.trim()
+      )
     );
 
     if (!targetRow) {
@@ -61,3 +64,4 @@ app.get('/', (req, res) => res.send('Slack interactivity server is running!'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+ console.log(`Server running on port ${PORT}`));
