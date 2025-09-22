@@ -13,21 +13,14 @@ app.post('/slack/actions', async (req, res) => {
     const actionId = payload.actions?.[0]?.action_id;
     const user = payload.user?.username || 'unknown';
 
-    if (!actionId || !actionId.includes('_')) {
-      console.error('Invalid or missing action_id:', actionId);
-      return res.status(400).json({ text: '⚠️ Invalid action ID', replace_original: true });
+    // Parse job, title, and date from the button value
+    const value = JSON.parse(payload.actions?.[0]?.value || '{}');
+    const { job, title, date } = value;
+
+    if (!job || !title || !date) {
+      console.error('Missing job/title/date in Slack payload:', value);
+      return res.status(400).json({ text: '⚠️ Missing job, title, or date', replace_original: true });
     }
-
-    const rowStr = actionId.split('_').pop();
-    const row = parseInt(rowStr, 10);
-
-    if (isNaN(row) || row <= 0) {
-      console.error('Invalid row number parsed from action_id:', rowStr);
-      return res.status(400).json({ text: '⚠️ Invalid row number', replace_original: true });
-    }
-
-    const rowIndex = row - 1;
-    console.log(`Received actionId: ${actionId}, parsed row index: ${rowIndex}`);
 
     const doc = new GoogleSpreadsheet(process.env.SHEET_ID);
     await doc.useServiceAccountAuth({
@@ -39,26 +32,25 @@ app.post('/slack/actions', async (req, res) => {
     const sheet = doc.sheetsByTitle['Jobs List'];
     const rows = await sheet.getRows();
 
-    if (rowIndex < 0 || rowIndex >= rows.length) {
-      console.error(`Row index ${rowIndex} is out of bounds. Total rows: ${rows.length}`);
-      return res.status(400).json({ text: `⚠️ Row index ${rowIndex} is out of bounds`, replace_original: true });
+    // Find the row that matches job, title, and date
+    const targetRow = rows.find(row =>
+      row['Job']?.trim() === job.trim() &&
+      row['Title']?.trim() === title.trim() &&
+      row['Start']?.trim() === date.trim()
+    );
+
+    if (!targetRow) {
+      console.error(`No matching row found for Job: ${job}, Title: ${title}, Date: ${date}`);
+      return res.status(404).json({ text: '⚠️ No matching job found', replace_original: true });
     }
 
-    const targetRow = rows[rowIndex];
+    targetRow['Marked Complete'] = 'TRUE';
+    targetRow['Percent Complete'] = 100;
+    await targetRow.save();
 
-    if (actionId.startsWith('mark_complete_')) {
-      targetRow['Marked Complete'] = 'TRUE';
-      targetRow['Percent Complete'] = 100;
-      await targetRow.save();
-      return res.json({ text: `✅ Job marked complete by @${user}`, replace_original: true });
-    } else if (actionId.startsWith('resolve_job_')) {
-      targetRow['Marked Complete'] = 'TRUE';
-      targetRow['Percent Complete'] = 100;
-      await targetRow.save();
-      return res.json({ text: `❗ Job resolved by @${user}`, replace_original: true });
-    } else {
-      return res.json({ text: `Action ${actionId} clicked by @${user}`, replace_original: true });
-    }
+    const emoji = actionId === 'resolve_job' ? '❗' : '✅';
+    return res.json({ text: `${emoji} Job updated by @${user}`, replace_original: true });
+
   } catch (error) {
     console.error('Error handling Slack action:', error);
     return res.status(500).json({ text: '⚠️ Internal server error', replace_original: true });
