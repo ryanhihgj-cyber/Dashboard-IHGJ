@@ -13,13 +13,13 @@ app.post('/slack/actions', async (req, res) => {
     const actionId = payload.actions?.[0]?.action_id;
     const user = payload.user?.username || 'unknown';
 
-    // Parse job, title, and date from the button value
+    // Parse job and title from the button value
     const value = JSON.parse(payload.actions?.[0]?.value || '{}');
-    const { job, title, date } = value;
+    const { job, title } = value;
 
-    if (!job || !title || !date) {
-      console.error('Missing job/title/date in Slack payload:', value);
-      return res.status(400).json({ text: '⚠️ Missing job, title, or date', replace_original: true });
+    if (!job || !title) {
+      console.error('Missing job/title in Slack payload:', value);
+      return res.status(400).json({ text: '⚠️ Missing job or title', replace_original: true });
     }
 
     const doc = new GoogleSpreadsheet(process.env.SHEET_ID);
@@ -32,18 +32,14 @@ app.post('/slack/actions', async (req, res) => {
     const sheet = doc.sheetsByTitle['Jobs List'];
     const rows = await sheet.getRows();
 
-    // Match row by Job, Title, and either Start or End date
+    // Match row by Job and Title only
     const targetRow = rows.find(row =>
       row['Job']?.trim() === job.trim() &&
-      row['Title']?.trim() === title.trim() &&
-      (
-        row['Start']?.trim() === date.trim() ||
-        row['End']?.trim() === date.trim()
-      )
+      row['Title']?.trim() === title.trim()
     );
 
     if (!targetRow) {
-      console.error(`No matching row found for Job: ${job}, Title: ${title}, Date: ${date}`);
+      console.error(`No matching row found for Job: ${job}, Title: ${title}`);
       return res.status(404).json({ text: '⚠️ No matching job found', replace_original: true });
     }
 
